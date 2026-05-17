@@ -1,0 +1,10 @@
+{
+  "autoload": {
+    "classmap": [
+      "controllers/",
+      "models/",
+      "config/",
+      "helpers/"
+    ]
+  }
+}
