@@ -19,7 +19,7 @@ if (!$class_id) {
     die("Missing class ID");
 }
 
-/* CLASS INFO */
+//CLASS INFO
 $stmt = $conn->prepare("
     SELECT 
         c.*,
@@ -36,7 +36,7 @@ if (!$class) {
     die("Class not found");
 }
 
-/* CLASSWORKS */
+// CLASSWORKS
 $works = $conn->prepare("
     SELECT * FROM classworks
     WHERE class_id = ?
@@ -45,15 +45,33 @@ $works = $conn->prepare("
 $works->execute([$class_id]);
 $classworks = $works->fetchAll(PDO::FETCH_ASSOC);
 
-/* GRADES */
-$grades = $conn->prepare("
-    SELECT g.*, c.title, c.max_points
-    FROM grades g
-    JOIN classworks c ON g.classwork_id = c.id
-    WHERE g.class_id = ? AND g.student_id = ?
+/*SUBMISSIONS*/
+$stmt = $conn->prepare("
+    SELECT *
+    FROM submissions
+    WHERE class_id = ? AND student_id = ?
 ");
-$grades->execute([$class_id, $user['id']]);
-$grades = $grades->fetchAll(PDO::FETCH_ASSOC);
+$stmt->execute([$class_id, $user['id']]);
+$submissions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$submission_map = [];
+foreach ($submissions as $sub) {
+    $submission_map[$sub['classwork_id']] = $sub;
+}
+
+/*GRADES*/
+$stmt = $conn->prepare("
+    SELECT *
+    FROM grades
+    WHERE class_id = ? AND student_id = ?
+");
+$stmt->execute([$class_id, $user['id']]);
+$grades = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$grade_map = [];
+foreach ($grades as $g) {
+    $grade_map[$g['classwork_id']] = $g;
+}
 ?>
 
 <!DOCTYPE html>
@@ -76,15 +94,18 @@ body{
     padding:30px;
 }
 
-.container{ padding:20px; max-width:1100px; margin:auto; }
-
-.grid{ display:grid; grid-template-columns:2fr 1fr; gap:20px; }
+.container{
+    padding:20px;
+    max-width:1100px;
+    margin:auto;
+}
 
 .card{
     background:white;
     padding:20px;
     border-radius:12px;
     box-shadow:0 4px 12px rgba(0,0,0,0.08);
+    margin-bottom:20px;
 }
 
 .work{
@@ -107,21 +128,9 @@ body{
     border-radius:8px;
 }
 
-input{ width:100%; }
-
-.locked{
-    color:red;
-    font-weight:bold;
-    margin-top:10px;
-}
-.open{
-    color:green;
-    font-weight:bold;
-}
-.late{
-    color:orange;
-    font-weight:bold;
-}
+.open{ color:green; font-weight:bold; }
+.locked{ color:red; font-weight:bold; }
+.late{ color:orange; font-weight:bold; }
 
 table{
     width:100%;
@@ -147,34 +156,38 @@ th{
     padding:10px;
 }
 </style>
-
 </head>
 
 <body>
 
 <div class="header">
     <h2><?= htmlspecialchars($class['class_name']) ?></h2>
-    <small>Professor: <?= htmlspecialchars($class['prof_name'] ?? '') ?></small>
+    <small>Professor: <?= htmlspecialchars($class['prof_name']) ?></small>
 </div>
 
 <div class="container">
-<div class="grid">
 
-<!-- LEFT -->
+<!-- CLASSWORKS -->
 <div class="card">
 <h3>Class Activities</h3>
 
 <?php foreach ($classworks as $cw): ?>
 
 <?php
+$submission = $submission_map[$cw['id']] ?? null;
+$grade = $grade_map[$cw['id']] ?? null;
+
+$isSubmitted = !empty($submission);
+$isGraded = !empty($grade);
+
 $now = date("Y-m-d H:i:s");
-$is_closed = !empty($cw['due_date']) && $now > $cw['due_date'];
+$isClosed = !empty($cw['due_date']) && $now > $cw['due_date'];
 
 $status = "OPEN";
 if (!empty($cw['due_date'])) {
-    if ($is_closed && !empty($cw['allow_late'])) {
+    if ($isClosed && !empty($cw['allow_late'])) {
         $status = "LATE";
-    } elseif ($is_closed) {
+    } elseif ($isClosed) {
         $status = "CLOSED";
     }
 }
@@ -185,57 +198,37 @@ if (!empty($cw['due_date'])) {
     <h4><?= htmlspecialchars($cw['title']) ?></h4>
     <p><?= htmlspecialchars($cw['description']) ?></p>
 
-    <small>
-        📅 Posted: <?= date("F d, Y h:i A", strtotime($cw['created_at'])) ?>
-    </small>
-
-    <br>
+    <small>📅 Posted: <?= date("F d, Y h:i A", strtotime($cw['created_at'])) ?></small><br>
 
     <?php if (!empty($cw['due_date'])): ?>
-        <small>
-            ⏰ Deadline: <?= date("F d, Y h:i A", strtotime($cw['due_date'])) ?>
-        </small>
-
-        <br>
+        <small>⏰ Deadline: <?= date("F d, Y h:i A", strtotime($cw['due_date'])) ?></small><br>
 
         <?php if ($status == "OPEN"): ?>
             <span class="open">🟢 OPEN</span>
         <?php elseif ($status == "CLOSED"): ?>
             <span class="locked">🔴 CLOSED</span>
         <?php else: ?>
-            <span class="late">⚠ LATE SUBMISSION</span>
+            <span class="late">⚠ LATE</span>
         <?php endif; ?>
-
     <?php endif; ?>
 
+    <!-- FILE ATTACHMENT -->
     <?php if (!empty($cw['file_path'])): ?>
-        <br>
-        📎 <a href="../../uploads/<?= $cw['file_path'] ?>">View File</a>
+        <br>📎 <a href="../../uploads/<?= $cw['file_path'] ?>">View File</a>
     <?php endif; ?>
 
-    <!-- SUBMIT -->
+    <!-- SUBMISSION -->
     <div class="submit-box">
 
-    <?php if ($status == "CLOSED"): ?>
+    <?php if ($isSubmitted): ?>
 
-        <div class="locked">
-            ❌ Submission closed. Deadline passed.
+        <div class="open">
+            ✅ Submitted
+            <?php if (!empty($submission['file_path'])): ?>
+                <br>
+                📎 <a href="../../<?= $submission['file_path'] ?>" target="_blank">View Submission</a>
+            <?php endif; ?>
         </div>
-
-    <?php elseif ($status == "LATE"): ?>
-
-        <form method="POST" enctype="multipart/form-data"
-              action="../student/submit_work.php">
-
-            <input type="hidden" name="classwork_id" value="<?= $cw['id'] ?>">
-            <input type="hidden" name="class_id" value="<?= $class_id ?>">
-
-            <label>Submit (Late)</label>
-            <input type="file" name="file" required>
-
-            <button type="submit">Submit Late</button>
-
-        </form>
 
     <?php else: ?>
 
@@ -262,11 +255,11 @@ if (!empty($cw['due_date'])) {
 
 </div>
 
-<!-- RIGHT -->
+<!--GRADES-->
 <div class="card">
 <h3>My Grades</h3>
 
-<?php if (!empty($grades)): ?>
+<?php if (!empty($grade_map)): ?>
 <table>
 <tr>
     <th>Activity</th>
@@ -274,20 +267,27 @@ if (!empty($cw['due_date'])) {
     <th>Status</th>
 </tr>
 
-<?php foreach ($grades as $g): ?>
+<?php foreach ($classworks as $cw): ?>
+
 <?php
-$score = (float)$g['grade'];
-$max = (float)$g['max_points'];
-$percent = ($max > 0) ? ($score / $max) * 100 : 0;
+$g = $grade_map[$cw['id']] ?? null;
+if (!$g) continue;
+
+$percent = ($cw['max_points'] > 0)
+    ? ($g['grade'] / $cw['max_points']) * 100
+    : 0;
+
 $status = ($percent >= 75) ? "PASS" : "FAIL";
 ?>
+
 <tr>
-    <td><?= htmlspecialchars($g['title']) ?></td>
-    <td><?= $score ?> / <?= $max ?></td>
+    <td><?= htmlspecialchars($cw['title']) ?></td>
+    <td><?= $g['grade'] ?> / <?= $cw['max_points'] ?></td>
     <td class="<?= $status == 'PASS' ? 'pass' : 'fail' ?>">
         <?= $status ?>
     </td>
 </tr>
+
 <?php endforeach; ?>
 
 </table>
@@ -297,7 +297,6 @@ $status = ($percent >= 75) ? "PASS" : "FAIL";
 
 </div>
 
-</div>
 </div>
 
 </body>

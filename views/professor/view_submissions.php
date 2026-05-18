@@ -29,8 +29,14 @@ if (!$classwork_id || !$class_id) {
 /* =========================
    CLASSWORK INFO
 ========================= */
-$stmt = $conn->prepare("SELECT * FROM classworks WHERE id = ?");
+$stmt = $conn->prepare("
+    SELECT *
+    FROM classworks
+    WHERE id = ?
+");
+
 $stmt->execute([$classwork_id]);
+
 $classwork = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$classwork) {
@@ -41,36 +47,65 @@ if (!$classwork) {
    STUDENTS
 ========================= */
 $stmt = $conn->prepare("
-    SELECT u.id, u.fname, u.lname
+    SELECT 
+        u.id,
+        u.fname,
+        u.lname
+
     FROM enrollments e
-    JOIN users u ON e.student_id = u.id
+
+    JOIN users u
+        ON e.student_id = u.id
+
     WHERE e.class_id = ?
+    AND u.role = 'student'
 ");
+
 $stmt->execute([$class_id]);
+
 $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 /* =========================
    SUBMISSIONS
 ========================= */
 $stmt = $conn->prepare("
-    SELECT *
-    FROM submissions
-    WHERE classwork_id = ?
+    SELECT 
+        s.*,
+        u.fname,
+        u.lname,
+        cw.title
+
+    FROM submissions s
+
+    INNER JOIN users u
+        ON s.student_id = u.id
+
+    INNER JOIN classworks cw
+        ON s.classwork_id = cw.id
+
+    WHERE s.classwork_id = ?
+    AND u.role = 'student'
 ");
+
 $stmt->execute([$classwork_id]);
 
 $submissions = [];
+
 foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $sub) {
+
     $submissions[$sub['student_id']] = $sub;
+
 }
 ?>
 
 <!DOCTYPE html>
 <html>
 <head>
+
 <title>View Submissions</title>
 
 <style>
+
 body{
     font-family:Arial;
     background:#f5f7fb;
@@ -117,14 +152,24 @@ th{
     color:white;
 }
 
-.submitted{ background:#22c55e; }
-.not-submitted{ background:#ef4444; }
+.submitted{
+    background:#22c55e;
+}
+
+.not-submitted{
+    background:#ef4444;
+}
 
 a{
     color:#1abc9c;
     text-decoration:none;
     font-weight:bold;
 }
+
+a:hover{
+    text-decoration:underline;
+}
+
 </style>
 
 </head>
@@ -132,7 +177,12 @@ a{
 <body>
 
 <div class="header">
-    <h2>View Submissions - <?= htmlspecialchars($classwork['title']) ?></h2>
+
+    <h2>
+        View Submissions -
+        <?= htmlspecialchars($classwork['title']) ?>
+    </h2>
+
 </div>
 
 <div class="container">
@@ -140,11 +190,14 @@ a{
 <div class="card">
 
 <table>
+
 <tr>
+
     <th>Student</th>
     <th>Status</th>
-    <th>File</th>
+    <th>Output Title</th>
     <th>Submitted At</th>
+
 </tr>
 
 <?php foreach ($students as $s): ?>
@@ -153,30 +206,61 @@ a{
 
 <tr>
 
+    <!-- STUDENT NAME -->
+
     <td>
+
         <?= htmlspecialchars($s['fname'] . " " . $s['lname']) ?>
+
     </td>
 
+    <!-- STATUS -->
+
     <td>
+
         <?php if ($submission): ?>
-            <span class="badge submitted">Submitted</span>
+
+            <span class="badge submitted">
+                Submitted
+            </span>
+
         <?php else: ?>
-            <span class="badge not-submitted">Not Submitted</span>
+
+            <span class="badge not-submitted">
+                Not Submitted
+            </span>
+
         <?php endif; ?>
+
     </td>
 
+    <!-- OUTPUT TITLE -->
+
     <td>
+
         <?php if (!empty($submission['file_path'])): ?>
-            <a href="../../<?= $submission['file_path'] ?>" target="_blank">
-                View File
+
+            <a href="../../<?= $submission['file_path'] ?>"
+               target="_blank">
+
+               <?= htmlspecialchars($submission['title']) ?>
+
             </a>
+
         <?php else: ?>
+
             -
+
         <?php endif; ?>
+
     </td>
 
+    <!-- SUBMITTED DATE -->
+
     <td>
-        <?= $submission['submitted_at'] ?? '-' ?>
+
+        <?= $submission['created_at'] ?? '-' ?>
+
     </td>
 
 </tr>
